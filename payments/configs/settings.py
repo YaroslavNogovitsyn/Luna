@@ -16,10 +16,15 @@ class Settings(BaseSettings):
         extra='ignore',
     )
 
+    # --- Аутентификация ---
+    API_KEY: str = 'supersecret-api-key'
+
     # --- База данных (асинхронный драйвер) ---
     DATABASE_URL: str = (
         'postgresql+asyncpg://payments:payments@postgres:5432/payments'
     )
+
+    PAYMENTS_NEW_ROUTING_KEY: str = 'payments.new'
 
 
 settings = Settings()
