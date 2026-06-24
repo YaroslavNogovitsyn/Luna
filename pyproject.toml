@@ -1,0 +1,205 @@
+# ------------------------------------------ Инструмент для выполнения сборки ------------------------------------------
+[build-system]
+requires = ['poetry-core']
+build-backend = 'poetry.core.masonry.api'
+
+# ------------------------------------------------ Информация о проекте ------------------------------------------------
+[tool.poetry]
+name = 'payments'
+version = '0.1.0'
+description = 'Асинхронный сервис процессинга платежей'
+authors = ['Yaroslav Nogovitsyn <yaroslavnogovitsyn@aflt-systems.ru>']
+readme = 'README.md'
+
+classifiers = [
+    'Programming Language :: Python :: 3 :: Only',
+    'Programming Language :: Python :: 3.11',
+    'Programming Language :: Python :: 3.12',
+    'Framework :: FastAPI',
+    'Topic :: Internet',
+    'Operating System :: OS Independent',
+]
+keywords = ['module', 'python', 'handler', 'fastapi']
+
+# Имена python-пакетов, которые необходимо поставить
+include = ['payments', 'payments.*']
+
+[tool.poetry.dependencies]
+# Основные зависимости проекта
+python = '^3.11'
+
+# Внешние библиотеки
+fastapi = '^0.115.0'
+uvicorn = { extras = ['standard'], version = '^0.32.0' }
+pydantic = '^2.9.0'
+pydantic-settings = '^2.6.0'
+sqlalchemy = { extras = ['asyncio'], version = '^2.0.36' }
+asyncpg = '^0.30.0'
+alembic = '^1.14.0'
+faststream = { extras = ['rabbit', 'cli'], version = '^0.5.30' }
+httpx = '^0.27.2'
+
+# Зависимости, используемые для разработки
+[tool.poetry.group.dev.dependencies]
+ruff = '>=0.14.0'
+pytest = '^8.3.0'
+pytest-asyncio = '^0.24.0'
+
+# ------------------------------------------------- Настройка pytest ---------------------------------------------------
+[tool.pytest.ini_options]
+# Async-тесты работают без явного маркера @pytest.mark.asyncio
+asyncio_mode = 'auto'
+testpaths = ['tests']
+# Корень проекта в sys.path, чтобы импортировался пакет `payments`
+pythonpath = ['.']
+
+# -------------------------------------------- Настройка базовых правил Ruff -------------------------------------------
+[tool.ruff]
+# Максимальная длина строк кода
+line-length = 120
+# Целевая версия Python
+target-version = 'py311'
+# Перечень директорий и файлов, которые не нужно проверять
+exclude = ['*venv*', '.git', 'build', 'dist']
+
+# ---------------------------------------------- Настройка линтера Ruff ------------------------------------------------
+[tool.ruff.lint]
+# Включение Preview mode
+preview = true
+
+# Перечень правил (префиксов), по которым будет проверяться код
+select = ['ALL']
+
+# Перечень правил, которые необходимо игнорировать
+ignore = [
+    # flake8-annotations (ANN)
+    'ANN401', # any-type
+    # flake8-bugbear (B)
+    'B904', # raise-without-from-inside-except
+    # flake8-copyright (CPY)
+    'CPY001', # missing-copyright-notice
+    # pydocstyle (в будущем нужно будет добавить обязательное документирование модулей, функций и классов)
+    'D100', # undocumented-public-module
+    'D104', # undocumented-public-package
+    'D105', # undocumented-magic-method
+    'D107', # undocumented-public-init
+    'D203', # incorrect-blank-line-before-class
+    'D212', # multi-line-summary-first-line
+    # pydoclint (DOC)
+    'DOC201', # docstring-missing-returns
+    'DOC402', # docstring-missing-yields
+    'DOC501', # docstring-missing-exception
+    # flake8-datetimez (DTZ)
+    'DTZ',
+    # flake8-errmsg (EM)
+    'EM101', # raw-string-in-exception
+    'EM102', # f-string-in-exception
+    'EM103', # dot-format-in-exception
+    # flake8-fixme (FIX)
+    'FIX002', # line-contains-todo
+    # Pylint (PL)
+    'PLR0911', # too-many-return-statements
+    'PLR0912', # too-many-branches
+    'PLR0913', # too-many-arguments
+    'PLR0914', # too-many-locals
+    'PLR6301', # no-self-use
+    # Ruff-specific rules (RUF)
+    'RUF001', # ambiguous-unicode-character-string
+    'RUF002', # ambiguous-unicode-character-docstring
+    'RUF003', # ambiguous-unicode-character-comment
+    # Лучше не использовать тернарный оператор, т.к. он ухудшает читаемость и скрывает ветки исполнения от coverage
+    'SIM108', # if-else-block-instead-of-if-exp
+    # flake8-type-checking (TC)
+    'TC001', # typing-only-first-party-import
+    'TC002', # typing-only-third-party-import
+    'TC003', # typing-only-standard-library-import
+    # tryceratops (TRY)
+    'TRY002',  # raise-vanilla-class
+    'TRY003', # raise-vanilla-args
+    # pep8-naming (N)
+    'N818', # error-suffix-on-exception-name
+]
+
+# ---------------------------------------------- Настройка форматтера Ruff ---------------------------------------------
+[tool.ruff.format]
+# Включение Preview mode
+preview = true
+
+# Стиль кавычек → одинарный
+quote-style = 'single'
+
+# ---------------------------------------------- Настройка Ruff => isort -----------------------------------------------
+[tool.ruff.lint.isort]
+
+force-single-line = true
+# Количестов пустых строк между группами импортов
+lines-between-types = 1
+# Количестов пустых строк после импортов
+lines-after-imports = 2
+
+# Название самого сервиса
+known-local-folder = ['payments']
+
+# Последовательность групп импортов
+section-order = [
+    'future',
+    'standard-library',
+    'third-party',
+    'first-party',
+    'local-folder',
+]
+
+[tool.ruff.lint.pylint]
+max-positional-args = 1
+
+# --------------------------------- Настройка Ruff => исключения для опредленных файлов --------------------------------
+[tool.ruff.lint.per-file-ignores]
+
+'**/__init__.py' = [
+    # Запрет на использование `from ... import *` => https://docs.astral.sh/ruff/rules/undefined-local-with-import-star/
+    'F403',
+]
+
+# Файлы миграций Alembic генерируются по шаблону: это не пакет (нет __init__.py), докстринги и аннотации служебных функций здесь избыточны.
+'payments/migrations/**' = [
+    'INP001', # implicit-namespace-package
+    'D103', # undocumented-public-function
+    'D400', # missing-trailing-period
+    'D415', # missing-terminal-punctuation
+    'ANN001', # missing-type-function-argument
+]
+
+# Локальный инструмент для ручного тестирования webhook'ов: вывод в stdout и биндинг на все интерфейсы здесь намеренные.
+'tools/webhook_receiver.py' = [
+    'T201', # print
+    'S104', # hardcoded-bind-all-interfaces
+    'D101', # undocumented-public-class
+    'D102', # undocumented-public-method
+    'ANN002', # missing-type-args
+]
+
+# Тесты: для них избыточны строгие правила документирования/аннотаций/безопасности.
+'tests/**' = [
+    'S101',    # assert (основа pytest)
+    'S105',    # hardcoded-password-string (тестовые ключи)
+    'S106',    # hardcoded-password-func-arg
+    'ANN',     # отсутствие аннотаций в тестовых функциях/фикстурах
+    'D',       # докстринги
+    'SLF001',  # доступ к приватным членам (_build_payload и пр.)
+    'PLR2004', # magic-value-comparison (ожидаемые значения в assert)
+    'ARG001',  # unused-function-argument (фикстуры pytest)
+    'ARG002',  # unused-method-argument (__aexit__ и пр.)
+    'INP001',  # implicit-namespace-package (в tests нет __init__.py)
+    'PT011',   # pytest-raises-too-broad
+    'PLR0917', # too-many-positional-arguments (фикстуры передаются позиционно)
+    'RUF029',  # unused-async (async-заглушка для asyncio.sleep обязана быть async)
+]
+# --------------------------------- Настройка Ruff => настройка определённых checker-ов --------------------------------
+[tool.ruff.lint.flake8-quotes]
+inline-quotes = 'single'
+
+[tool.ruff.lint.flake8-annotations]
+mypy-init-return = false
+
+[tool.ruff.lint.flake8-pytest-style]
+fixture-parentheses = false
