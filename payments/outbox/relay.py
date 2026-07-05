@@ -13,16 +13,11 @@ import asyncio
 import contextlib
 import logging
 
-from datetime import UTC
-from datetime import datetime
-
-from sqlalchemy import select
-
 from payments.broker import broker
 from payments.broker import payments_exchange
 from payments.configs import settings
 from payments.database import AsyncSessionLocal
-from payments.models.outbox import OutboxMessage
+from payments.repositories import OutboxRepository
 
 
 logger = logging.getLogger('payments.outbox')
@@ -30,14 +25,8 @@ logger = logging.getLogger('payments.outbox')
 
 async def _publish_batch() -> int:
     async with AsyncSessionLocal() as session, session.begin():
-        stmt = (
-            select(OutboxMessage)
-            .where(OutboxMessage.published_at.is_(None))
-            .order_by(OutboxMessage.created_at)
-            .limit(settings.OUTBOX_BATCH_SIZE)
-            .with_for_update(skip_locked=True)
-        )
-        messages = (await session.scalars(stmt)).all()
+        repo = OutboxRepository(session)
+        messages = await repo.fetch_unpublished(settings.OUTBOX_BATCH_SIZE)
 
         for message in messages:
             await broker.publish(
@@ -45,7 +34,7 @@ async def _publish_batch() -> int:
                 exchange=payments_exchange,
                 routing_key=message.routing_key,
             )
-            message.published_at = datetime.now(tz=UTC)
+            repo.mark_published(message)
 
         return len(messages)
 

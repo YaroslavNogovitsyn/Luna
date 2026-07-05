@@ -5,18 +5,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from payments.common.models.enums import PaymentStatus
 from payments.common.models.payment import PaymentEvent
 from payments.consumer import app as consumer
 from payments.services.webhook import WebhookDeliveryError
 
 
-class _FakeSession:
-    """Async-CM заглушка SQLAlchemy-сессии: get() возвращает заданный платёж."""
-
-    def __init__(self, payment) -> None:
-        self._payment = payment
-        self.commits = 0
+class _FakeSessionCM:
+    """Async-CM заглушка сессии — тело обработки её не использует напрямую."""
 
     async def __aenter__(self):
         return self
@@ -24,79 +19,46 @@ class _FakeSession:
     async def __aexit__(self, *exc):
         return False
 
-    async def get(self, _model, _pid):
-        return self._payment
-
-    async def commit(self):
-        self.commits += 1
-
-
-def _payment(status: PaymentStatus = PaymentStatus.PENDING) -> SimpleNamespace:
-    return SimpleNamespace(
-        id=uuid.uuid4(),
-        status=status,
-        processed_at=None,
-        webhook_url='http://callback.test/hook',
-        amount=None,
-        currency='RUB',
-        description=None,
-        meta={},
-        created_at=None,
-    )
-
 
 @pytest.fixture
 def env(monkeypatch):
-    """Изолирует обработчик: подменяет сессию, доставку webhook, публикацию и random."""
-    state = SimpleNamespace(session=None, deliver=AsyncMock(), publish=AsyncMock())
+    """
+    Изолирует тонкий обработчик: подменяет сервис, доставку webhook и публикацию.
 
-    monkeypatch.setattr(consumer, 'AsyncSessionLocal', lambda: state.session)
+    Обработка платежа целиком делегирована PaymentService (тестируется
+    отдельно в test_payment_service.py) — здесь проверяется только
+    оркестрация: что и в каком порядке дёргает consumer.
+    """
+    state = SimpleNamespace(
+        service=SimpleNamespace(process=AsyncMock()),
+        deliver=AsyncMock(),
+        publish=AsyncMock(),
+    )
+
+    monkeypatch.setattr(consumer, 'AsyncSessionLocal', _FakeSessionCM)
+    monkeypatch.setattr(consumer, 'PaymentService', lambda _session: state.service)
     monkeypatch.setattr(consumer, 'deliver_webhook', state.deliver)
     monkeypatch.setattr(consumer.broker, 'publish', state.publish)
-
-    # Детерминируем эмуляцию: задержка 0, успех при random() < SUCCESS_RATE.
-    monkeypatch.setattr(consumer.settings, 'PROCESS_DELAY_MIN', 0.0)
-    monkeypatch.setattr(consumer.settings, 'PROCESS_DELAY_MAX', 0.0)
-    monkeypatch.setattr(consumer.settings, 'SUCCESS_RATE', 0.9)
-    monkeypatch.setattr(consumer.random, 'random', lambda: 0.0)  # → succeeded
     return state
 
 
-async def test_pending_payment_processed_and_webhook_sent(env):
-    payment = _payment(PaymentStatus.PENDING)
-    env.session = _FakeSession(payment)
+def _payment() -> SimpleNamespace:
+    return SimpleNamespace(id=uuid.uuid4(), webhook_url='http://callback.test/hook')
+
+
+async def test_processed_payment_triggers_webhook(env):
+    payment = _payment()
+    env.service.process.return_value = payment
 
     await consumer.process_payment(PaymentEvent(payment_id=payment.id))
 
-    assert payment.status == PaymentStatus.SUCCEEDED
-    assert payment.processed_at is not None
-    assert env.session.commits == 1
+    env.service.process.assert_awaited_once_with(payment.id)
     env.deliver.assert_awaited_once_with(payment)
     env.publish.assert_not_awaited()  # webhook доставлен → DLQ не задействована
 
 
-async def test_failed_emulation_sets_failed_status(env, monkeypatch):
-    monkeypatch.setattr(consumer.random, 'random', lambda: 0.99)  # >= SUCCESS_RATE → failed
-    payment = _payment(PaymentStatus.PENDING)
-    env.session = _FakeSession(payment)
-
-    await consumer.process_payment(PaymentEvent(payment_id=payment.id))
-
-    assert payment.status == PaymentStatus.FAILED
-
-
-async def test_already_processed_skips_emulation(env):
-    payment = _payment(PaymentStatus.SUCCEEDED)  # redelivery уже обработанного
-    env.session = _FakeSession(payment)
-
-    await consumer.process_payment(PaymentEvent(payment_id=payment.id))
-
-    assert env.session.commits == 0  # повторно не обрабатываем (идемпотентность)
-    env.deliver.assert_awaited_once_with(payment)  # но webhook пробуем доставить
-
-
 async def test_missing_payment_is_acked_without_side_effects(env):
-    env.session = _FakeSession(None)
+    env.service.process.return_value = None  # платёж не найден
 
     await consumer.process_payment(PaymentEvent(payment_id=uuid.uuid4()))
 
@@ -105,9 +67,9 @@ async def test_missing_payment_is_acked_without_side_effects(env):
 
 
 async def test_webhook_failure_routes_to_dlq(env):
+    payment = _payment()
+    env.service.process.return_value = payment
     env.deliver.side_effect = WebhookDeliveryError('boom')
-    payment = _payment(PaymentStatus.PENDING)
-    env.session = _FakeSession(payment)
 
     await consumer.process_payment(PaymentEvent(payment_id=payment.id))
 
